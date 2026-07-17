@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/exammanager/db" VERSION="2026031501" COMMENT="Install XML for local_exammanager"
+<XMLDB PATH="local/exammanager/db" VERSION="2026041801" COMMENT="Install XML for local_exammanager"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd">
     <TABLES>
-        <TABLE NAME="local_exammanager_codes" COMMENT="Stores generated exam codes and metadata">
+        <TABLE NAME="local_exammanager_codes" COMMENT="Generated exam codes and metadata">
             <FIELDS>
                 <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
                 <FIELD NAME="quizid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
@@ -12,17 +12,34 @@
                 <FIELD NAME="course_shortname" TYPE="char" LENGTH="100" NOTNULL="true"/>
                 <FIELD NAME="access_code" TYPE="char" LENGTH="20" NOTNULL="false"/>
                 <FIELD NAME="seb_exit_code" TYPE="char" LENGTH="20" NOTNULL="false"/>
+                <FIELD NAME="access_code_action" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="keep"/>
+                <FIELD NAME="seb_action" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="keep"/>
                 <FIELD NAME="teacher" TYPE="char" LENGTH="255" NOTNULL="false"/>
                 <FIELD NAME="room" TYPE="char" LENGTH="100" NOTNULL="false"/>
                 <FIELD NAME="sessionname" TYPE="char" LENGTH="100" NOTNULL="false"/>
                 <FIELD NAME="timeopen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
                 <FIELD NAME="timeclose" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
                 <FIELD NAME="timelimit" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
                 <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
             </FIELDS>
             <KEYS>
                 <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
                 <KEY NAME="quizid_unique" TYPE="unique" FIELDS="quizid"/>
+            </KEYS>
+        </TABLE>
+        <TABLE NAME="local_exammanager_sessions" COMMENT="Exam sessions">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="100" NOTNULL="true"/>
+                <FIELD NAME="startdate" TYPE="int" LENGTH="10" NOTNULL="false"/>
+                <FIELD NAME="enddate" TYPE="int" LENGTH="10" NOTNULL="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="active"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
             </KEYS>
         </TABLE>
     </TABLES>

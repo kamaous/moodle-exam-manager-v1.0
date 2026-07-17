@@ -4,126 +4,270 @@ namespace local_exammanager;
 defined('MOODLE_INTERNAL') || die();
 
 class exporter {
+
+    /**
+     * Neutralise les formules CSV/Excel et normalise les valeurs scalaires.
+     */
+    private static function sanitize_cell($value): string {
+        if (is_bool($value)) {
+            $value = $value ? '1' : '0';
+        } else if ($value === null) {
+            $value = '';
+        } else if (is_scalar($value)) {
+            $value = (string)$value;
+        } else {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        }
+
+        $value = str_replace(["
+", "
+"], "
+", $value);
+
+        if ($value !== '' && preg_match('/^[=+\-@]/', $value)) {
+            $value = "'" . $value;
+        }
+
+        return $value;
+    }
+
+    private static function export_cell(string $column, $value): string {
+        $value = self::sanitize_cell($value);
+
+        if (in_array($column, ['open_time', 'close_time'], true)) {
+            return str_replace('T', ' ', $value);
+        }
+
+        return $value;
+    }
+
+    /*
+    ORDRE DES COLONNES EXACT COMME TON IMAGE
+    */
+    private static function headers(): array {
+        return [
+            'course_shortname',
+            'quiz_name',
+            'open_time',
+            'close_time',
+            'time_limit',
+            'access_code',
+            'seb_exit_code',
+            'access_code_action',
+            'seb_action',
+            'generate_access_code',
+            'generate_seb_exit_code',
+            'force_new_codes',
+            'status',
+            'message',
+            'teacher',
+            'room',
+            'session'
+        ];
+    }
+
+    /*
+    EXPORT CSV (avec UTF8 BOM pour Excel)
+    */
     public static function export_csv(array $rows, string $filepath): void {
+
         $f = fopen($filepath, 'w');
-        fputcsv($f, [
-            'course_shortname','quiz_name','open_time','close_time','time_limit','teacher','room','session',
-            'generate_access_code','generate_seb_exit_code','force_new_codes',
-            'access_code','seb_exit_code','status','message'
-        ], ';');
+
+        // UTF-8 BOM pour corriger les accents dans Excel
+        fprintf($f, chr(0xEF).chr(0xBB).chr(0xBF));
+
+        fputcsv($f, self::headers(), ';');
+
+        $previouscourse = null;
+        $emptyline = array_fill(0, count(self::headers()), '');
 
         foreach ($rows as $row) {
-            fputcsv($f, [
-                $row['course_shortname'] ?? '',
-                $row['quiz_name'] ?? '',
-                $row['open_time'] ?? '',
-                $row['close_time'] ?? '',
-                $row['time_limit'] ?? '',
-                $row['teacher'] ?? '',
-                $row['room'] ?? '',
-                $row['session'] ?? '',
-                $row['generate_access_code'] ?? '',
-                $row['generate_seb_exit_code'] ?? '',
-                $row['force_new_codes'] ?? '',
-                $row['access_code'] ?? '',
-                $row['seb_exit_code'] ?? '',
-                $row['status'] ?? '',
-                $row['message'] ?? ''
-            ], ';');
+
+            $currentcourse = trim((string)($row['course_shortname'] ?? ''));
+
+            if ($previouscourse !== null && $currentcourse !== $previouscourse) {
+                fputcsv($f, $emptyline, ';');
+            }
+
+            $line = [];
+
+            foreach (self::headers() as $col) {
+                $line[] = self::export_cell($col, $row[$col] ?? '');
+            }
+
+            fputcsv($f, $line, ';');
+
+            $previouscourse = $currentcourse;
         }
+
         fclose($f);
     }
 
+    /*
+    EXPORT EXCEL (.xlsx)
+    */
     public static function export_excel(array $rows, string $filepath): void {
-        $headers = [
-            'course_shortname','quiz_name','open_time','close_time','time_limit','teacher','room','session',
-            'generate_access_code','generate_seb_exit_code','force_new_codes',
-            'access_code','seb_exit_code','status','message'
-        ];
 
-        $html = '<html><head><meta charset="utf-8"></head><body><table border="1" cellspacing="0" cellpadding="4">';
-        $html .= '<tr>';
-        foreach ($headers as $header) {
-            $html .= '<th>' . s($header) . '</th>';
-        }
-        $html .= '</tr>';
+        $headers = self::headers();
+
+        $matrix = [];
+
+        $previouscourse = null;
+        $emptyline = array_fill(0, count($headers), '');
 
         foreach ($rows as $row) {
-            $html .= '<tr>';
-            foreach ($headers as $header) {
-                $html .= '<td>' . s($row[$header] ?? '') . '</td>';
-            }
-            $html .= '</tr>';
-        }
 
-        $html .= '</table></body></html>';
-        file_put_contents($filepath, $html);
+            $currentcourse = trim((string)($row['course_shortname'] ?? ''));
+
+            if ($previouscourse !== null && $currentcourse !== $previouscourse) {
+                $matrix[] = $emptyline;
+            }
+
+            $line = [];
+
+            foreach ($headers as $col) {
+                $line[] = self::export_cell($col, $row[$col] ?? '');
+            }
+
+            $matrix[] = $line;
+
+            $previouscourse = $currentcourse;
+                }
+
+        \local_exammanager\xlsx_writer::write($headers, $matrix, $filepath);
     }
 
+    /*
+    EXPORT LOG
+    */
     public static function export_log(array $rows, string $filepath): void {
+
         $lines = [];
+
         foreach ($rows as $row) {
-            $lines[] = '[' . ($row['status'] ?? '') . '] '
-                . ($row['course_shortname'] ?? '') . ' | '
-                . ($row['quiz_name'] ?? '') . ' | '
-                . ($row['open_time'] ?? '') . ' -> '
-                . ($row['close_time'] ?? '') . ' | '
-                . ($row['message'] ?? '');
+
+            $lines[] =
+                '[' . self::sanitize_cell($row['status'] ?? '') . '] ' .
+                self::sanitize_cell($row['course_shortname'] ?? '') . ' | ' .
+                self::sanitize_cell($row['quiz_name'] ?? '') . ' | ' .
+                self::export_cell('open_time', $row['open_time'] ?? '') . ' -> ' .
+                self::export_cell('close_time', $row['close_time'] ?? '') . ' | ' .
+                self::sanitize_cell($row['message'] ?? '');
         }
+
         file_put_contents($filepath, implode(PHP_EOL, $lines));
     }
 
-    public static function export_pdf(array $rows, string $filepath): void {
-        global $CFG;
-        if (file_exists($CFG->dirroot . '/lib/tcpdf/tcpdf.php')) {
-            require_once($CFG->dirroot . '/lib/tcpdf/tcpdf.php');
-        }
+    /*
+    CONSTRUCTION HTML POUR PDF
+    */
+    private static function build_grouped_html(array $rows, string $groupkey, callable $labelfn, string $title): string {
 
-        if (!class_exists('TCPDF')) {
-            throw new \moodle_exception('TCPDF indisponible pour l’export PDF.');
-        }
+        $groups = [];
 
-        $pdf = new \TCPDF();
-        $pdf->SetCreator('Moodle');
-        $pdf->SetAuthor('local_exammanager');
-        $pdf->SetTitle('Codes surveillants');
-        $pdf->SetMargins(15, 15, 15);
-        $pdf->AddPage();
-        $pdf->SetFont('helvetica', '', 10);
-
-        $grouped = [];
         foreach ($rows as $row) {
-            if (($row['status'] ?? '') !== 'PROGRAMMED') {
+
+            if (!in_array(($row['status'] ?? ''), ['PROGRAMMED', 'PROGRAMMÉ'], true)) {
                 continue;
             }
-            $room = trim((string)($row['room'] ?? ''));
-            if ($room === '') {
-                $room = 'SALLE_NON_PRECISEE';
+
+            $key = $labelfn((string)($row[$groupkey] ?? ''));
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = [];
             }
-            $grouped[$room][] = $row;
+
+            $groups[$key][] = $row;
         }
 
-        $html = '<h2>Codes surveillants</h2>';
-        foreach ($grouped as $room => $items) {
-            $html .= '<h3>Salle : ' . s($room) . '</h3>';
-            $html .= '<table border="1" cellpadding="4"><tr><th>Quiz</th><th>Cours</th><th>Ouverture</th><th>Fermeture</th><th>Durée</th><th>Clé accès</th><th>Code sortie SEB</th></tr>';
+        $html = '<h2>'.s($title).'</h2>';
+
+        foreach ($groups as $group => $items) {
+
+            $html .= '<h3>'.s($group).'</h3>';
+
+            $html .= '<table border="1" cellpadding="4">
+                <tr>
+                    <th>Quiz</th>
+                    <th>Cours</th>
+                    <th>Session</th>
+                    <th>Ouverture</th>
+                    <th>Fermeture</th>
+                    <th>Durée</th>
+                    <th>Clé accès</th>
+                    <th>Code sortie SEB</th>
+                </tr>';
 
             foreach ($items as $item) {
-                $html .= '<tr>'
-                    . '<td>' . s($item['quiz_name'] ?? '') . '</td>'
-                    . '<td>' . s($item['course_shortname'] ?? '') . '</td>'
-                    . '<td>' . s($item['open_time'] ?? '') . '</td>'
-                    . '<td>' . s($item['close_time'] ?? '') . '</td>'
-                    . '<td>' . s((string)($item['time_limit'] ?? '')) . '</td>'
-                    . '<td>' . s($item['access_code'] ?? '') . '</td>'
-                    . '<td>' . s($item['seb_exit_code'] ?? '') . '</td>'
-                    . '</tr>';
+
+                $html .= '<tr>
+                    <td>'.s($item['quiz_name'] ?? '').'</td>
+                    <td>'.s($item['course_shortname'] ?? '').'</td>
+                    <td>'.s($item['session'] ?? '').'</td>
+                    <td>'.s(self::export_cell('open_time', $item['open_time'] ?? '')).'</td>
+                    <td>'.s(self::export_cell('close_time', $item['close_time'] ?? '')).'</td>
+                    <td>'.s($item['time_limit'] ?? '').'</td>
+                    <td>'.s($item['access_code'] ?? '').'</td>
+                    <td>'.s($item['seb_exit_code'] ?? '').'</td>
+                </tr>';
             }
 
             $html .= '</table><br>';
         }
 
-        $pdf->writeHTML($html, true, false, true, false, '');
-        $pdf->Output($filepath, 'F');
+        return $html;
+    }
+
+    /*
+    GENERATION PDF
+    */
+    private static function export_pdf_from_html(string $html, string $filepath): void {
+
+        global $CFG;
+
+        require_once($CFG->dirroot.'/lib/tcpdf/tcpdf.php');
+
+        $pdf = new \TCPDF();
+
+        $pdf->SetCreator('Moodle');
+        $pdf->SetMargins(15,15,15);
+
+        $pdf->AddPage();
+
+        $pdf->SetFont('helvetica','',10);
+
+        $pdf->writeHTML($html);
+
+        $pdf->Output($filepath,'F');
+    }
+
+    /*
+    PDF PAR SALLE
+    */
+    public static function export_pdf_by_room(array $rows, string $filepath): void {
+
+        $html = self::build_grouped_html(
+            $rows,
+            'room',
+            ['\\local_exammanager\\util','room_label'],
+            get_string('codesbyroom','local_exammanager')
+        );
+
+        self::export_pdf_from_html($html,$filepath);
+    }
+
+    /*
+    PDF PAR SURVEILLANT
+    */
+    public static function export_pdf_by_teacher(array $rows, string $filepath): void {
+
+        $html = self::build_grouped_html(
+            $rows,
+            'teacher',
+            ['\\local_exammanager\\util','teacher_label'],
+            get_string('codesbyteacher','local_exammanager')
+        );
+
+        self::export_pdf_from_html($html,$filepath);
     }
 }
